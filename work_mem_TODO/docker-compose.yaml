@@ -1,0 +1,24 @@
+version: "3.8"
+
+services:
+  postgres:
+    image: postgres:15
+    environment:
+      POSTGRES_PASSWORD: local
+      POSTGRES_USER: local
+      POSTGRES_PASSWORD: local
+      POSTGRES_DB: soccer_stats
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - ./init_data.sql:/docker-entrypoint-initdb.d/init_data.sql # Initialize the database
+      - ./data:/var/lib/postgresql/data  # Mounts the local "data" directory to the container's data directory
+
+    ports:
+      - "5432:5432"
+
+volumes:
+  postgres:
