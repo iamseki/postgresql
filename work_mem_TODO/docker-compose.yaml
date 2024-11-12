@@ -2,12 +2,11 @@ version: "3.8"
 
 services:
   postgres:
-    image: postgres:15
+    image: postgres:17
     environment:
       POSTGRES_PASSWORD: local
       POSTGRES_USER: local
-      POSTGRES_PASSWORD: local
-      POSTGRES_DB: soccer_stats
+      POSTGRES_DB: local
     healthcheck:
       test: ["CMD-SHELL", "pg_isready"]
       interval: 10s
