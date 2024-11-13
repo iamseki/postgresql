@@ -19,5 +19,27 @@ services:
     ports:
       - "5432:5432"
 
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    environment:
+      POSTGRES_URL: postgres://local:local@postgres:5432/local?pool_max_conns=100&pool_min_conns=10      
+    ports:
+      - "8080:8080"
+    depends_on:
+      - postgres
+
+  k6:
+    image: grafana/k6
+    entrypoint: [ "k6", "run", "/scripts/k6-test.js" ]
+    environment:
+      BASE_URL: http://api:8080
+      ENDPOINT: /low-work-mem
+    volumes:
+      - ./k6-test.js:/scripts/k6-test.js
+    depends_on:
+      - api
+
 volumes:
   postgres:

@@ -1,0 +1,24 @@
+# Start by using the official Golang image as the build environment
+FROM golang:1.23 AS builder
+
+# Set the working directory in the container
+WORKDIR /app
+
+# Copy the go.mod and go.sum files and download dependencies
+COPY api/ .
+RUN go mod download
+
+# Build the Go app
+RUN go build -o api main.go
+
+# Now create a small final image for running the app
+FROM gcr.io/distroless/base-debian12
+
+# Copy the built binary from the builder stage
+COPY --from=builder /app/api /api
+
+# Expose the port the app runs on
+EXPOSE 8080
+
+# Command to run the API
+CMD ["/api"]
