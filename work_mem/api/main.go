@@ -64,6 +64,6 @@ func main() {
 		w.WriteHeader(http.StatusOK)
 	})
 
-	log.Println("Starting server on port 8080")
-	log.Fatal(http.ListenAndServe("0.0.0.0:8080", nil))
+	log.Println("Starting server on port 8082")
+	log.Fatal(http.ListenAndServe("0.0.0.0:8082", nil))
 }

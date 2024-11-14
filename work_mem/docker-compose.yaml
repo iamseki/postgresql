@@ -24,9 +24,9 @@ services:
       context: .
       dockerfile: Dockerfile.api
     environment:
-      POSTGRES_URL: postgres://local:local@postgres:5432/local?pool_max_conns=100&pool_min_conns=10      
+      POSTGRES_URL: postgres://local:local@postgres:5432/local?pool_max_conns=100&pool_min_conns=10
     ports:
-      - "8080:8080"
+      - "8082:8082"
     depends_on:
       - postgres
 
@@ -34,7 +34,7 @@ services:
     image: grafana/k6
     entrypoint: [ "k6", "run", "/scripts/k6-test.js" ]
     environment:
-      BASE_URL: http://api:8080
+      BASE_URL: http://api:8082
       ENDPOINT: /low-work-mem
     volumes:
       - ./k6-test.js:/scripts/k6-test.js

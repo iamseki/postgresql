@@ -262,15 +262,52 @@ Além disso, o segundo nó de Sort que tomava mais tempo, aprox. 40ms simplesmen
 - [HashJoin Algorithm](https://postgrespro.com/blog/pgsql/5969673)
 - [MergeJoin Algorithm](https://postgrespro.com/blog/pgsql/5969770)
 
-# Definindo o `work_mem`
+### Impacto na API
 
-Tá, mas depois de ter sonhos com o problema, de acordar N vezes durante a noite pra tentar mais uma solução ou debug e finalmente descobrir que o `work_mem` pode te ajudar, como definir um valor pra esssa configuração :grimacing:?
+Como foi o meu caso, nem sempre o work_mem default será o suficiente para atender as necessidades de negócio do seu sistema, podemos simplesmente alterar a nível de usuário com:
+
+```sql
+ALTER USER foo SET work_mem='32MB';
+```
+
+**Nota:** Se vc utilizar um pool de conexões do lado da aplicação ou se conecta no banco através de um pooler é importante reciclar as sessões antigas para a configuração surtir efeito.
+
+Também podemos controlar essa configuração a nível de transação de banco, vamos subir uma API simples e mensurar o impacto com um simples teste de carga utilizando [k6](https://k6.io/):
+
+```js
+import http from 'k6/http';
+import { check } from 'k6';
+
+const BASE_URL = __ENV.BASE_URL || 'http://localhost:8080';
+const ENDPOINT = __ENV.ENDPOINT || '/low-work-mem';
+
+export const options = {
+  stages: [
+    { duration: '15s', target: 10 }, // ramp up to 10 users
+    { duration: '15s', target: 10 },
+    { duration: '15s', target: 0 },  // ramp down to 0 users
+  ],
+};
+
+export default function () {
+  const res = http.get(`${BASE_URL}${ENDPOINT}`);
+  check(res, { 'status is 200': (r) => r.status === 200 });
+}
+```
+
+--- stuff
+
+
+
+# Conclusão
+
+Tá, mas depois de ter sonhos com o problema, de acordar N vezes durante a noite pra tentar mais uma solução ou debug(quem nunca?) e finalmente descobrir que o `work_mem` pode te ajudar, como definir um valor pra esssa configuração :grimacing:?
 
 O valor padrão de _4MB_ para o work_mem, como muitas outras configurações do PostgreSQL (papo para outros posts) é conservador, não atoa conseguimos rodar em máquinas com pouco poder computacional, porém temos que ter cautela para não ter o risco de crashar o postgres com _Running out of memory_. **Uma única query se complexa o suficiente pode usar o valor de memória de múltiplos do configurado para o work_mem**, a depender do número de operações de _Sort_, _Merge Joins_, _Hash Joins_(work_mem multiplicado por hash_mem_multiplier) entre outras operações como destacado na [documentação oficial](https://www.postgresql.org/docs/current/runtime-config-resource.html#GUC-WORK-MEM):
 
 >it is necessary to keep this fact in mind when choosing the value. Sort operations are used for ORDER BY, DISTINCT, and merge joins. Hash tables are used in hash joins, hash-based aggregation, memoize nodes and hash-based processing of IN subqueries.
 
-Então como nem tudo são flores, não existe uma fórmula para ser aplicada cegamente, vai depender muito de memória RAM disponível, workload e padrões das queries do seu sistema. O [timescaleDB](https://github.com/timescale/timescaledb) possui uma ferramenta para [autotune](https://github.com/timescale/timescaledb-tune/tree/main) e esse assunto é bem discutido em vários artigos(excelentes por sinal) que podem te dar um norte:
+Então como nem tudo são flores, não existe uma fórmula para ser aplicada cegamente, vai depender muito da memória RAM disponível, workload e padrões das queries do seu sistema. O [timescaleDB](https://github.com/timescale/timescaledb) possui uma ferramenta para [autotune](https://github.com/timescale/timescaledb-tune/tree/main) e esse assunto é bem discutido em vários artigos(excelentes por sinal) que podem te dar um norte:
 
 - [Everything you know about work_mem is wrong](https://thebuild.com/blog/2023/03/13/everything-you-know-about-setting-work_mem-is-wrong/)
 - [How should I tune work_mem for a given system](https://pganalyze.com/blog/5mins-postgres-work-mem-tuning#how-should-i-tune-work_mem-for-a-given-system)
@@ -351,3 +388,20 @@ TODO
 | 
 | running (0m45.0s), 00/10 VUs, 2846 complete and 0 interrupted iterations
 | default ✓ [ 100% ] 00/10 VUs  45s
+
+
+
+
+
+sudo docker run \
+  --volume=/:/rootfs:ro \
+  --volume=/var/run:/var/run:ro \
+  --volume=/sys:/sys:ro \
+  --volume=/var/lib/docker/:/var/lib/docker:ro \
+  --volume=/dev/disk/:/dev/disk:ro \
+  --publish=8080:8080 \
+  --detach=true \
+  --name=cadvisor \
+  --privileged \
+  --device=/dev/kmsg \
+  gcr.io/cadvisor/cadvisor:v0.49.1
