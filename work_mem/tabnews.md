@@ -89,7 +89,7 @@ ORDER BY total_score DESC
 LIMIT 2000;
 ```
 
-Tá mas como identifico possíveis gargalos nessa query? Não só o PostgreSQL mas como outros DBMS do mercado suportam o comando ***[EXPLAIN](https://www.postgresql.org/docs/current/sql-explain.html)*** que detalha a sequência de passos, ou o plano de execução otimizado (ou não), que precisará ser percorrido e executado dado a query em questão. 
+Tá mas como identifico possíveis gargalos nessa query? Não só o PostgreSQL mas como outros DBMS do mercado suportam o comando ***[EXPLAIN](https://www.postgresql.org/docs/current/sql-explain.html)*** que detalha a sequência de passos, ou o plano de execução otimizado (ou não), que precisará ser percorrido e executado dado a query em questão.
 
 Podemos ver informações como:
 
@@ -198,7 +198,7 @@ A parte de "Stats" é super útil para queries mais complexas, mostrando o quant
 
 - Vc pode analisar e visualizar o explain dessa query no link: https://explain.dalibo.com/plan/2gd0a8c8fab6a532#stats
 
-Como indicado pelo EXPLAIN um dos principais problemas de performance nessa query é o nó de Sort que está utilizando disco, inclusive, um efeito colateral que pode ser observado, principalmente se vc trabalhar com sistemas que possui uma quantidade considerável de usuários, é picos na métrica de Write I/O (espero que vc tenha métricas, caso contrário, sinta-se abraçado), e sim, a query de leitura pode causar spikes de escrita pq o algoritmo de Sort escreve em arquivos temporários.
+Como indicado pelo `EXPLAIN` um dos principais problemas de performance nessa query é o nó de Sort que está utilizando disco, inclusive, um efeito colateral que pode ser observado, principalmente se vc trabalhar com sistemas que possui uma quantidade considerável de usuários, é picos na métrica de Write I/O (espero que vc tenha métricas, caso contrário, sinta-se abraçado), e sim, a query de leitura pode causar spikes de escrita pq o algoritmo de Sort escreve em arquivos temporários.
 
 ## Solução
 
@@ -261,7 +261,9 @@ Execution Time: 41.998 ms                                                       
 Perceba que nesse explain, um dos nós de Sort passou a utilizar um algoritmo que faz sort em memória _heapsort_, e por curiosidade, o planner decide por um heapsort somente se achar barato o suficiente em vez de mandar um quicksort, mais detalhes no [código fonte](https://github.com/postgres/postgres/blob/master/src/backend/utils/sort/tuplesort.c#L1229-L1252).
 
 
-Além disso, o segundo nó de Sort que tomava mais tempo, aprox. 40ms simplesmente desapareceu do plano de execução da query, isso aconteceu pq o planner elencou um nó de `HashJoin` em vez de `MergeJoin` dado que agora a operação de hash cabe tranquilamente em memória, utilizando 480kB. Mais detalhes sobre os algoritmos de join nesses artigos:
+Além disso, o segundo nó de Sort que tomava mais tempo, aprox. 40ms simplesmente desapareceu do plano de execução da query, isso aconteceu pq o planner elencou um nó de `HashJoin` em vez de `MergeJoin` dado que agora a operação de hash cabe tranquilamente em memória, utilizando 480kB. 
+
+Mais detalhes sobre os algoritmos de join nesses artigos:
 
 - [HashJoin Algorithm](https://postgrespro.com/blog/pgsql/5969673)
 - [MergeJoin Algorithm](https://postgrespro.com/blog/pgsql/5969770)
@@ -516,6 +518,6 @@ Mas no fim do dia, IMHO a resposta para essa pergunta é: TESTE, TESTE HOJE, TES
 
 Espero que esse post tenha sido útil de alguma forma. Quando enfrentei esse problema, ainda não tinha o hábito de pesquisar in English, e a falta de conteúdo desse tipo em português acabou fazendo com que essa quest levasse mais tempo do que eu esperava. Mas confesso que foi divertido.
 
-Pretendo trazer mais exemplos práticos envolvendo PostgreSQL. Se tiver alguma sugestão de assunto ou crítica, deixe nos comentários! :smile:
+Pretendo trazer mais exemplos práticos com perrengues da vida real envolvendo PostgreSQL. Se tiver alguma sugestão de assunto ou crítica, deixe nos comentários! :smile:
 
 - Github com os casos de uso: https://github.com/iamseki/postgresql
