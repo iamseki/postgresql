@@ -6,7 +6,7 @@ Anos atrás, recebi a missão de investigar e **resolver** a lentidão em um sis
 ALTER USER foo SET work_mem='32MB';
 ```
 
-Sendo sincero, este conteúdo pode ou não resolver seu problema de maneira imediata; vai depender muito do padrão das queries do seu sistema. Mas, se você trabalha com backend, espero que este post traga mais uma opção no seu arsenal para resolver problemas de performance, especialmente no PostgreSQL :smile:.
+Sendo sincero, este conteúdo pode ou não resolver seu problema de maneira imediata, vai depender muito do padrão das queries do seu sistema. Mas, se você trabalha com backend, espero que este post traga mais uma opção no seu arsenal para resolver problemas de performance, especialmente no PostgreSQL :smile:.
 
 Ao longo do post, vamos montar um cenário que facilita a degradação de performance e explorar algumas ferramentas pra investigar o problema a fundo, como o EXPLAIN, o k6 pra testes de carga, além de arriscar uma olhada no código-fonte do PostgreSQL. Também vou compartilhar alguns artigos que podem dar uma direção pra resolver problemas parecidos.
 
@@ -70,7 +70,7 @@ ORDER BY total_score DESC
 LIMIT 2000;
 ```
 
-Tá mas como identifico possíveis gargalos nessa query? Não só o PostgreSQL mas como outros DBMS do mercado suportam o comando ***[EXPLAIN](https://www.postgresql.org/docs/current/sql-explain.html)*** que detalha a sequência de passos, ou o plano de execução otimizado (ou não), que precisará ser percorrido e executado dado a query em questão.
+Tá, mas como identifico possíveis gargalos nessa query? Não só o PostgreSQL mas como outros DBMS do mercado suportam o comando ***[EXPLAIN](https://www.postgresql.org/docs/current/sql-explain.html)*** que detalha a sequência de passos, ou o plano de execução otimizado (ou não), que precisará ser percorrido e executado dado a query em questão.
 
 Podemos ver informações como:
 
@@ -80,7 +80,7 @@ Podemos ver informações como:
 - Uso de _[shared buffers](https://postgresqlco.nf/doc/en/param/shared_buffers/)_.
 - Estimativas de tempo de execução.
 
-Vc pode encontrar mais sobre o planner/optimizer em:
+Você pode encontrar mais sobre o planner/optimizer em:
 
 - [documentação oficial](https://www.postgresql.org/docs/current/planner-optimizer.html)
 - [pganalyze - basics of postgres query planning](https://pganalyze.com/docs/explain/basics-of-postgres-query-planning)
@@ -177,9 +177,9 @@ A parte de "Stats" é super útil para queries mais complexas, mostrando o quant
 
 ![explain dalibo work-mem 64kb stats](https://raw.githubusercontent.com/iamseki/postgresql/refs/heads/main/work_mem/explain-stats-64kb.png)
 
-- Vc pode analisar e visualizar o explain dessa query no link: https://explain.dalibo.com/plan/2gd0a8c8fab6a532#stats
+- Você pode analisar e visualizar o explain dessa query no link: https://explain.dalibo.com/plan/2gd0a8c8fab6a532#stats
 
-Como indicado pelo `EXPLAIN` um dos principais problemas de performance nessa query é o nó de Sort que está utilizando disco, inclusive, um efeito colateral que pode ser observado, principalmente se vc trabalhar com sistemas que possui uma quantidade considerável de usuários, é picos na métrica de Write I/O (espero que vc tenha métricas, caso contrário, sinta-se abraçado), e sim, a query de leitura pode causar spikes de escrita pq o algoritmo de Sort escreve em arquivos temporários.
+Como indicado pelo `EXPLAIN` um dos principais problemas de performance nessa query é o nó de Sort que está utilizando disco, inclusive, um efeito colateral que pode ser observado, principalmente se você trabalhar com sistemas que possui uma quantidade considerável de usuários, é picos na métrica de Write I/O (espero que você tenha métricas, caso contrário, sinta-se abraçado), e sim, a query de leitura pode causar spikes de escrita já que o algoritmo de Sort escreve em arquivos temporários.
 
 ## Solução
 
@@ -242,7 +242,7 @@ Execution Time: 41.998 ms                                                       
 Perceba que nesse explain, um dos nós de Sort passou a utilizar um algoritmo que faz sort em memória _heapsort_, e por curiosidade, o planner decide por um heapsort somente se achar barato o suficiente em vez de mandar um quicksort, mais detalhes no [código fonte](https://github.com/postgres/postgres/blob/master/src/backend/utils/sort/tuplesort.c#L1229-L1252).
 
 
-Além disso, o segundo nó de Sort que tomava mais tempo, aprox. 40ms simplesmente desapareceu do plano de execução da query, isso aconteceu pq o planner elencou um nó de `HashJoin` em vez de `MergeJoin` dado que agora a operação de hash cabe tranquilamente em memória, utilizando 480kB. 
+Além disso, o segundo nó de Sort que tomava mais tempo, aprox. 40ms simplesmente desapareceu do plano de execução da query, isso aconteceu porque o planner elencou um nó de `HashJoin` em vez de `MergeJoin` dado que agora a operação de hash cabe tranquilamente em memória, utilizando 480kB. 
 
 Mais detalhes sobre os algoritmos de join nesses artigos:
 
@@ -251,7 +251,7 @@ Mais detalhes sobre os algoritmos de join nesses artigos:
 
 ### Impacto na API
 
-Como foi no meu caso, nem sempre o `work_mem` default será o suficiente para atender ao workload do seu sistema. Podemos simplesmente alterar esse valor a nível de usuário com:
+Nem sempre o `work_mem` default será o suficiente para atender ao workload do seu sistema. Podemos simplesmente alterar esse valor a nível de usuário com:
 
 ```sql
 ALTER USER foo SET work_mem='32MB';
@@ -412,7 +412,7 @@ O docker compose que sobe as dependências e executa o teste de carga:
         postgres:
     ```
 
-Podemos alternar a variável de ambiente `ENDPOINT` para definir o cenário a ser testado entre: `/low-work-mem` e `/optimized-work-mem`, vc pode subir os testes com `docker compose up --abort-on-container-exit`, utilizei a versão `20.10.22` do Docker durante a escrita desse post.
+Podemos alternar a variável de ambiente `ENDPOINT` para definir o cenário a ser testado entre: `/low-work-mem` e `/optimized-work-mem`, você pode subir os testes com `docker compose up --abort-on-container-exit`, utilizei a versão `20.10.22` do Docker durante a escrita desse post.
 
 
 - Teste de carga `ENDPOINT: /low-work-mem` - `work_mem=64kB`
@@ -475,16 +475,16 @@ Podemos alternar a variável de ambiente `ENDPOINT` para definir o cenário a se
         | default ✓ [ 100% ] 00/10 VUs  45s
     ```
 
-O resultado mostra que a performance do endpoint com work_mem=4MB foi bem superior ao com 64kB. O p90 diminuiu cerca de 43ms e o throughput melhorou consideravelmente para o workload do teste. Se essas métricas são novas pra vc, super indico estudar e entender a fundo, essas informações vão te ajudar a te guiar em análises de performance, aqui vai algumas fontes interessantes:
+O resultado mostra que a performance do endpoint com work_mem=4MB foi bem superior ao com 64kB. O p90 diminuiu cerca de 43ms e o throughput melhorou consideravelmente para o workload do teste. Se essas métricas são novas pra você, super indico estudar e entender a fundo, essas informações vão te ajudar a te guiar em análises de performance, aqui vai algumas fontes interessantes:
 
 - [k6 response time](https://github.com/grafana/k6-learn/blob/main/Modules/II-k6-Foundations/03-Understanding-k6-results.md#response-time)
 - [p90 vs p99](https://www.akitasoftware.com/blog-posts/p90-vs-p99-why-not-both#:~:text=The%20p90%20latency%20of%20an,were%20faster%20than%20this%20number.)
 
 # Conclusão
 
-Tá, mas depois de ter sonhos com o problema, de acordar N vezes durante a noite pra tentar mais uma solução ou debug (quem nunca?) e finalmente descobrir que o `work_mem` pode te ajudar, como definir um valor pra esssa configuração :grimacing:?
+Tá, mas depois de ter sonhos com o problema, de acordar N vezes durante a noite pra tentar mais uma solução ou debug (quem nunca?) e finalmente descobrir que o `work_mem` pode te ajudar, como definir um valor pra esssa configuração? :grimacing:
 
-O valor padrão de _4MB_ para o work_mem, como muitas outras configurações do PostgreSQL (papo para outros posts) é conservador, não atoa conseguimos rodar em máquinas com pouco poder computacional, porém temos que ter cautela para não ter o risco de crashar o postgres com _Running out of memory_. **Uma única query se complexa o suficiente pode usar o valor de memória de múltiplos do configurado para o work_mem**, a depender do número de operações de _Sort_, _Merge Joins_, _Hash Joins_(work_mem multiplicado por hash_mem_multiplier) entre outras operações como destacado na [documentação oficial](https://www.postgresql.org/docs/current/runtime-config-resource.html#GUC-WORK-MEM):
+O valor padrão de _4MB_ para o work_mem, como muitas outras configurações do PostgreSQL (papo para outros posts) é conservador, não é atoa que conseguimos rodar em máquinas com pouco poder computacional, porém temos que ter cautela para não ter o risco de crashar o postgres com _Running out of memory_. **Uma única query, se complexa o suficiente, pode usar o valor de memória de múltiplos do configurado para o work_mem**, a depender do número de operações de _Sort_, _Merge Joins_, _Hash Joins_(work_mem multiplicado por hash_mem_multiplier) entre outras operações como destacado na [documentação oficial](https://www.postgresql.org/docs/current/runtime-config-resource.html#GUC-WORK-MEM):
 
 >it is necessary to keep this fact in mind when choosing the value. Sort operations are used for ORDER BY, DISTINCT, and merge joins. Hash tables are used in hash joins, hash-based aggregation, memoize nodes and hash-based processing of IN subqueries.
 
