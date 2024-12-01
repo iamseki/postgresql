@@ -1,24 +1,25 @@
 # Briefing
 
-Anos atrás, recebi a missão de investigar e **resolver** a lentidão em um sistema crítico da firma. Foram noites mal dormidas e alguns fios a menos de cabelo. O backend utilizava PostgreSQL e, depois de muito suor e investigação, a solução veio em literalmente uma linha:
+Years ago, I was tasked with solving a performance issue in a critical system for the company I worked at. It was a tough challenge, sleepless nights and even more hair loss, The backend used PostgreSQL, and after a lot of effort and digging, the solution turned out to be as simple as one line:
 
 ```sql
 ALTER USER foo SET work_mem='32MB';
 ```
 
-Sendo sincero, este conteúdo pode ou não resolver seu problema de maneira imediata, vai depender muito do padrão das queries do seu sistema. Mas, se você trabalha com backend, espero que este post traga mais uma opção no seu arsenal para resolver problemas de performance, especialmente no PostgreSQL :smile:.
+Now, to be honest, this might or might not solve your performance issue right away. It depends heavily on your query patterns and the workload of your system. However, if you're a backend developer, I hope this post adds another tool to your arsenal for tackling problems, especially with PostgreSQL :smile:
 
-Ao longo do post, vamos montar um cenário que facilita a degradação de performance e explorar algumas ferramentas pra investigar o problema a fundo, como o EXPLAIN, o k6 pra testes de carga, além de arriscar uma olhada no código-fonte do PostgreSQL. Também vou compartilhar alguns artigos que podem dar uma direção pra resolver problemas parecidos.
 
-- :arrow_right: [github com a implementação completa](https://github.com/iamseki/postgresql/tree/main/work_mem)
+In this post, we’ll create a scenario to simulate performance degradation and explore some tools to investigate the problem, like EXPLAIN, k6 for load testing, and even a dive into PostgreSQL’s source code. I’ll also share some articles to help you solve related issues.
 
-# Cenário
+- :arrow_right: [github repository with the complete implementation](https://github.com/iamseki/postgresql/tree/main/work_mem)
 
-Vamos criar um sistema simples para analisar o desempenho de jogadores de futebol, por enquanto, a única necessidade de neǵocio é responder a seguinte pergunta:
+# Case Study
 
-- Qual o top N dos jogadores que mais tiveram participações em gols?
+Let’s create a simple system to analyze soccer player performance. For now, the only business rule is to answer this question:
 
-Para responder a essa pergunta, vamos modelar nosso banco de dados com três tabelas. O SQL a seguir cria e popula essas tabelas:
+- Who are the top N players involved in scoring the most?
+
+The following SQL creates our data model and populates it:
 
 ```sql
 CREATE TABLE players (
@@ -53,13 +54,13 @@ SELECT
 FROM generate_series(1, 10000);
 ```
 
-O script para inicializar e popular o banco de dados está no [repositório do GitHub](https://github.com/iamseki/postgresql/blob/main/work_mem/init_data.sql).
+The script to initialize and populate the database is available in the [github repository](https://github.com/iamseki/postgresql/blob/main/work_mem/init_data.sql).
 
-> E sim, poderíamos modelar os dados de forma que as queries fossem mais performáticas, mas o objetivo aqui é justamente explorar cenários não otimizados. Acredite, você provavelmente vai encontrar sistemas onde é preciso "tirar leite de pedra" para conseguir performance, seja por erros de modelagem ou crescimento inesperado.
+> Yes, we could design out database to improve system performance, but the main goal here is to explore unoptimized scenarios. Trust me, you'll likely encounter systems like this, where either poor initial design choices or unexpected growth require significant effort to improve performance.
 
-# Debugando o Problema
+# Debugging the problem
 
-Para simular o problema envolvendo o valor do work_mem, vamos formular a query para responder: Qual o top 2000 dos jogadores que mais contribuíram com gols? Ou seja, o somatório de assistências e gols por player_id, ordenado de forma decrescente:
+To simulate the issue related to the work_mem configuration, let’s create a query to answer this question: Who are the top 2000 players contributing the most to goals?
 
 ```sql
 SELECT p.player_id, SUM(ps.goals + ps.assists) AS total_score
@@ -70,25 +71,26 @@ ORDER BY total_score DESC
 LIMIT 2000;
 ```
 
-Tá, mas como identifico possíveis gargalos nessa query? Não só o PostgreSQL mas como outros DBMS do mercado suportam o comando ***[EXPLAIN](https://www.postgresql.org/docs/current/sql-explain.html)*** que detalha a sequência de passos, ou o plano de execução otimizado (ou não), que precisará ser percorrido e executado dado a query em questão.
+Alright, but how can we identify bottlenecks in this query? Like other DBMSs, PostgreSQL supports the ***[EXPLAIN](https://www.postgresql.org/docs/current/sql-explain.html)*** command, which helps us understand each step executed by the query planner (optimized or not).
 
-Podemos ver informações como:
+We can analyze details such as:
 
-- Qual o tipo da busca? Index scan, Index Only scan, Seq Scan, etc.
-- Qual índice foi utilizado? E por qual condição?
-- Se houver _Sort_, qual foi o algoritmo utilizado? Utilizou memória ou disco? 
-- Uso de _[shared buffers](https://postgresqlco.nf/doc/en/param/shared_buffers/)_.
-- Estimativas de tempo de execução.
+- What kind of scan was used? Index scan, Index Only scan, Seq Scan, etc.
+- Which index was used, and under what conditions?
+- If sorting is involved, what type of algorithm was used? Does it rely entirely on memory, or does it require disk usage?
+- The usage of _[shared buffers](https://postgresqlco.nf/doc/en/param/shared_buffers/)_.
+- Execution time estimation.
 
-Você pode encontrar mais sobre o planner/optimizer em:
+You can learn more about the PostgreSQL planner/optimizer here:
 
-- [documentação oficial](https://www.postgresql.org/docs/current/planner-optimizer.html)
+- [official documentation](https://www.postgresql.org/docs/current/planner-optimizer.html)
 - [pganalyze - basics of postgres query planning](https://pganalyze.com/docs/explain/basics-of-postgres-query-planning)
 - [cybertec - how to interpret postgresql explain](https://www.cybertec-postgresql.com/en/how-to-interpret-postgresql-explain-analyze-output/?gad_source=1&gclid=CjwKCAiAudG5BhAREiwAWMlSjISvgthrORt-LxBH8K9hUhqvJ8B228ZBvHX9dM4MYD1xJ4iT6Z7P2BoCgTQQAvD_BwE)
 
 ## Talk is cheap
 
-Falar é fácil, então vamos análisar um exemplo prático. Primeiro vamos diminuir o work_mem para o menor valor possível, que é 64kB como podemos ver nesse trecho retirado do [código fonte](https://github.com/postgres/postgres/blob/master/src/backend/utils/sort/tuplesort.c#L695):
+Talk is cheap, so let’s dive into a practical example. First, we’ll reduce the work_mem to its smallest possible value, which is 64kB, as defined in the [source code](https://github.com/postgres/postgres/blob/master/src/backend/utils/sort/tuplesort.c#L695):
+
 
 ```C
 	/*
@@ -100,16 +102,17 @@ Falar é fácil, então vamos análisar um exemplo prático. Primeiro vamos dimi
 	state->allowedMem = Max(workMem, 64) * (int64) 1024;
 ```
 
-E em seguida analisar o output do `EXPLAIN`:
+Next, let’s analyze the output of the `EXPLAIN` command:
+
 
 ```sql
-BEGIN; -- 1. Iniciando uma transação.
+BEGIN; -- 1. Initialize a transaction.
 
-SET LOCAL work_mem = '64kB'; -- 2. Alterando o valor de work_mem a nível de transação, outras transações na mesma sessão utilizará o valor default ou pré configurado.
+SET LOCAL work_mem = '64kB'; -- 2. Change work_mem at transaction level, another running transactions at the same session will have the default value(4MB).
 
-SHOW work_mem; -- 3. Mostra o valor atualizado da configuração work_mem.
+SHOW work_mem; -- 3. Check the modified work_mem value.
 
-EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS) -- 4. Explain incluindo opções que ajudam a identificar gargalos, para mais informações olhe a seção de referências. 
+EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS) -- 4. Run explain with options that help us to analyses and indetifies bottlenecks. 
 SELECT 
     p.player_id, 
     SUM(ps.goals + ps.assists) AS total_score 
@@ -162,28 +165,31 @@ Planning:                                                                       
 Planning Time: 0.309 ms                                                                                                                                             |
 Execution Time: 82.718 ms                                                                                                                                    |
 
-COMMIT; -- 5. Aqui poderia ser um ROLLBACK, possibilitando analisar queries de INSERT, UPDATE e DELETE.
+COMMIT; -- 5. You can also execute a ROLLBACK, in case you want to analyze queries like INSERT, UPDATE and DELETE.
 ```
 
-Podemos ver que o tempo de execução da query foi de **82.718ms** e que o algoritmo de _Sort_ utilizado foi o `external merge`, que usa disco em vez de memória dado que o conjunto de dados ultrapassou o 64kB de _work_mem_ configurado.
+We can see that the execution time was **82.718ms**, and the _Sort Algorithm_ used was `external merge`. This algorithm relies on disk instead of memory because the data exceeded the 64kB `work_mem` limit.
 
-Por curiosidade, o módulo `tuplesort.c` marca que o algoritmo de _Sort_ irá utilizar disco setando o estado para _SORTEDONTAPE_ [nessa linha](https://github.com/postgres/postgres/blob/master/src/backend/utils/sort/tuplesort.c#L1394) e as iterações com o disco é exposto pelo módulo [logtape.c](https://github.com/postgres/postgres/blob/master/src/backend/utils/sort/logtape.c).
+For your information, the tuplesort.c module flags when the Sort algorithm will use disk by setting the state to SORTEDONTAPE [at this line](https://github.com/postgres/postgres/blob/master/src/backend/utils/sort/tuplesort.c#L1394). Disk interactions is handled by the [logtape.c](https://github.com/postgres/postgres/blob/master/src/backend/utils/sort/logtape.c) module.
 
-Se você é uma pessoa mais visual (como eu) existem ferramentas que facilitam o entendimento do output do EXPLAIN como https://explain.dalibo.com/, a imagem a seguir mostra um dos nós com a etapa de _Sort_ incluindo detalhes como `Sort Method: external merge` e `Sort Space Used: 2.2MB`:
+
+If you're a visual person (like me), there are tools that can help you understand the EXPLAIN output, such as https://explain.dalibo.com/. Below is an example showing a node with the Sort step, including details like `Sort Method: external merge` and `Sort Space Used: 2.2MB`:
 
 ![explain dalibo work-mem 64kb](https://raw.githubusercontent.com/iamseki/postgresql/refs/heads/main/work_mem/explain-work-mem-64kb.png)
 
-A parte de "Stats" é super útil para queries mais complexas, mostrando o quanto cada nó contribuiu em tempo de execução da query, no nosso exemplo, ele já indicaria um potencial suspeito de nós do tipo _Sort_ que juntos levaram cerca de **42ms**:
+The "Stats" section is especially useful for analyzing more complex queries, as it provides execution time details for each query node. In our example, it highlights a suspiciously high execution time—nearly 42ms—in one of the Sort nodes:
+
 
 ![explain dalibo work-mem 64kb stats](https://raw.githubusercontent.com/iamseki/postgresql/refs/heads/main/work_mem/explain-stats-64kb.png)
 
-- Você pode analisar e visualizar o explain dessa query no link: https://explain.dalibo.com/plan/2gd0a8c8fab6a532#stats
+- You can visualize and analyze this query plan here: https://explain.dalibo.com/plan/2gd0a8c8fab6a532#stats
 
-Como indicado pelo `EXPLAIN` um dos principais problemas de performance nessa query é o nó de Sort que está utilizando disco, inclusive, um efeito colateral que pode ser observado, principalmente se você trabalhar com sistemas que possui uma quantidade considerável de usuários, é picos na métrica de Write I/O (espero que você tenha métricas, caso contrário, sinta-se abraçado), e sim, a query de leitura pode causar spikes de escrita já que o algoritmo de Sort escreve em arquivos temporários.
+As the `EXPLAIN` output shows, one of the main reasons for the performance problem is the Sort node using disk. A side effect of this issue, especially in systems with high workloads, is spikes in Write I/O metrics (I hope you’re monitoring these; if not, good luck when you need them!). And yes, even read-only queries can cause write spikes, as the Sort algorithm writes data to temporary files.
 
-## Solução
 
-Se executarmos a mesma query setando `work_mem=4MB`(que é o default do postgres), o tempo de execução cai em aproximadamente 50%:
+## Solution
+
+When we execute the same query with work_mem=4MB (the default in PostgreSQL), the execution time decreases by over 50%.
 
 ```sql
 EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS) 
@@ -236,30 +242,30 @@ Planning Time: 0.236 ms                                                         
 Execution Time: 41.998 ms                                                                                                                           |
 ```
 
-- Se preferir uma análise visual: https://explain.dalibo.com/plan/b094ec2f1cfg44f6#
+- For a visual analysis, check this link: https://explain.dalibo.com/plan/b094ec2f1cfg44f6#
+
+In this EXPLAIN output, one of the Sort nodes now uses an in-memory algorithm, heapsort. For context, the planner opts for heapsort only when it’s cheaper to execute than quicksort. You can dive deeper into the decision-making process in the [PostgreSQL source code](https://github.com/postgres/postgres/blob/master/src/backend/utils/sort/tuplesort.c#L1229-L1252).
 
 
-Perceba que nesse explain, um dos nós de Sort passou a utilizar um algoritmo que faz sort em memória _heapsort_, e por curiosidade, o planner decide por um heapsort somente se achar barato o suficiente em vez de mandar um quicksort, mais detalhes no [código fonte](https://github.com/postgres/postgres/blob/master/src/backend/utils/sort/tuplesort.c#L1229-L1252).
+Additionally, the second Sort node, which previously accounted for almost 40ms of execution time, disappears entirely from the execution plan. This change occurs because the planner now selects a HashJoin instead of a MergeJoin, as the hash operation fits in memory, consuming approximately 480kB.
 
-
-Além disso, o segundo nó de Sort que tomava mais tempo, aprox. 40ms simplesmente desapareceu do plano de execução da query, isso aconteceu porque o planner elencou um nó de `HashJoin` em vez de `MergeJoin` dado que agora a operação de hash cabe tranquilamente em memória, utilizando 480kB. 
-
-Mais detalhes sobre os algoritmos de join nesses artigos:
+For more details about join algorithms, check out these articles:
 
 - [HashJoin Algorithm](https://postgrespro.com/blog/pgsql/5969673)
 - [MergeJoin Algorithm](https://postgrespro.com/blog/pgsql/5969770)
 
-### Impacto na API
+### Impact on the API
 
-Nem sempre o `work_mem` default será o suficiente para atender ao workload do seu sistema. Podemos simplesmente alterar esse valor a nível de usuário com:
+The default work_mem isn’t always sufficient to handle your system’s workload. You can adjust this value at the user level using:
 
 ```sql
 ALTER USER foo SET work_mem='32MB';
 ```
 
-**Nota:** Se você usa um pool de conexões na aplicação ou se conecta ao banco através de um pooler, é importante reciclar as sessões antigas para que a nova configuração tenha efeito.
+**Note:** If you’re using a connection pool or a connection pooler, it’s important to recycle old sessions for the new configuration to take effect.
 
-Também podemos controlar essa configuração a nível de transação no banco. Vamos subir uma API simples para entender e mensurar o impacto com um teste de carga usando o [k6](https://k6.io/):
+You can also control this configuration at the database transaction level. Let’s run a simple API to understand and measure the impact of work_mem changes using load testing with [k6](https://k6.io/):
+
 
 - `k6-test.js`
 
@@ -284,7 +290,7 @@ Também podemos controlar essa configuração a nível de transação no banco. 
         }
     ```
 
-A API foi implementada em golang e simplesmente expõem dois endpoints que executa a query com diferentes configurações de work_mem:
+The API was implemented in Go and exposes two endpoints that execute the query with different work_mem configurations:
 
 - `main.go`
 
@@ -360,7 +366,7 @@ A API foi implementada em golang e simplesmente expõem dois endpoints que execu
         }
     ```
 
-O docker compose que sobe as dependências e executa o teste de carga:
+Below is the docker-compose file containing all the dependencies needed to run the load test:
 
 - `docker-compose.yaml`
 
@@ -412,10 +418,9 @@ O docker compose que sobe as dependências e executa o teste de carga:
         postgres:
     ```
 
-Podemos alternar a variável de ambiente `ENDPOINT` para definir o cenário a ser testado entre: `/low-work-mem` e `/optimized-work-mem`, você pode subir os testes com `docker compose up --abort-on-container-exit`, utilizei a versão `20.10.22` do Docker durante a escrita desse post.
+We can set the ENDPOINT environment variable to define the scenario to test: /low-work-mem or /optimized-work-mem. Run the test using: `docker compose up --abort-on-container-exit`. For this example, I used Docker version 20.10.22.
 
-
-- Teste de carga `ENDPOINT: /low-work-mem` - `work_mem=64kB`
+- Test `ENDPOINT: /low-work-mem` - `work_mem=64kB`
 
     ```sh
         ============ 64kB work_mem k6 output =============
@@ -446,7 +451,7 @@ Podemos alternar a variável de ambiente `ENDPOINT` para definir o cenário a se
 
     ```
 
-- Teste de carga `ENDPOINT: /optimized-work-mem` - `work_mem=4MB`
+- Test `ENDPOINT: /optimized-work-mem` - `work_mem=4MB`
 
     ```sh
         ============ 4MB work_mem k6 output =============
@@ -475,33 +480,25 @@ Podemos alternar a variável de ambiente `ENDPOINT` para definir o cenário a se
         | default ✓ [ 100% ] 00/10 VUs  45s
     ```
 
-O resultado mostra que a performance do endpoint com work_mem=4MB foi bem superior ao com 64kB. O p90 diminuiu cerca de 43ms e o throughput melhorou consideravelmente para o workload do teste. Se essas métricas são novas pra você, super indico estudar e entender a fundo, essas informações vão te ajudar a te guiar em análises de performance, aqui vai algumas fontes interessantes:
+The results demonstrate that the endpoint with a higher work_mem outperformed the one with a lower configuration. The p90 latency dropped by over 43ms, and throughput improved significantly under the test workload.
+
+If percentile metrics are new to you, I recommend studying and understanding them. These metrics are incredibly helpful for guiding performance analyses. Here are some resources to get you started:
 
 - [k6 response time](https://github.com/grafana/k6-learn/blob/main/Modules/II-k6-Foundations/03-Understanding-k6-results.md#response-time)
 - [p90 vs p99](https://www.akitasoftware.com/blog-posts/p90-vs-p99-why-not-both#:~:text=The%20p90%20latency%20of%20an,were%20faster%20than%20this%20number.)
 
-# Conclusão
+# Conclusion
 
-Tá, mas depois de ter sonhos com o problema, de acordar N vezes durante a noite pra tentar mais uma solução ou debug (quem nunca?) e finalmente descobrir que o `work_mem` pode te ajudar, como definir um valor pra esssa configuração? :grimacing:
+After dreaming about the problem, waking up multiple times to try new solutions, and finally discovering that `work_mem` could help, the next challenge is figuring out the right value for this configuration.  :grimacing:
 
-O valor padrão de _4MB_ para o work_mem, como muitas outras configurações do PostgreSQL (papo para outros posts) é conservador, não é atoa que conseguimos rodar em máquinas com pouco poder computacional, porém temos que ter cautela para não ter o risco de crashar o postgres com _Running out of memory_. **Uma única query, se complexa o suficiente, pode usar o valor de memória de múltiplos do configurado para o work_mem**, a depender do número de operações de _Sort_, _Merge Joins_, _Hash Joins_(work_mem multiplicado por hash_mem_multiplier) entre outras operações como destacado na [documentação oficial](https://www.postgresql.org/docs/current/runtime-config-resource.html#GUC-WORK-MEM):
+
+The default value of 4MB for work_mem, like many other PostgreSQL settings, is conservative. This allows PostgreSQL to run on smaller machines with limited computational power. However, we must be cautious not to crash the PostgreSQL instance with out-of-memory errors. **A single query, if complex enough, can consume multiple times the memory specified by work_mem**, depending on the number of operations like Sorts, Merge Joins, Hash Joins (influenced by _hash_mem_multiplier_), and more. As noted in the [official documentation](https://www.postgresql.org/docs/current/runtime-config-resource.html#GUC-WORK-MEM):
 
 >it is necessary to keep this fact in mind when choosing the value. Sort operations are used for ORDER BY, DISTINCT, and merge joins. Hash tables are used in hash joins, hash-based aggregation, memoize nodes and hash-based processing of IN subqueries.
 
-Então como nem tudo são flores, não existe uma fórmula mágica para ser aplicada cegamente, vai depender muito da memória RAM disponível, workload e padrões das queries do seu sistema. O [timescaleDB](https://github.com/timescale/timescaledb) possui uma ferramenta para [autotune](https://github.com/timescale/timescaledb-tune/tree/main) e esse assunto é bem discutido em vários artigos (excelentes por sinal) que podem te dar um norte:
+Unfortunately, there’s no magic formula for setting work_mem. It depends on your system’s available memory, workload, and query patterns. The [TimescaleDB Team](https://github.com/timescale/timescaledb) has a tool to [autotune](https://github.com/timescale/timescaledb-tune/tree/main) and the topic is widely discussed. Here are some excellent resources to guide you:
 
 - [Everything you know about work_mem is wrong](https://thebuild.com/blog/2023/03/13/everything-you-know-about-setting-work_mem-is-wrong/)
 - [How should I tune work_mem for a given system](https://pganalyze.com/blog/5mins-postgres-work-mem-tuning#how-should-i-tune-work_mem-for-a-given-system)
 
-Mas no fim do dia, IMHO a resposta para essa pergunta é: TESTE, TESTE HOJE, TESTE AMANHÃ, ~~TESTE PARA SEMPRE~~ até encontrar um valor aceitável para seu caso de uso que melhore a performance das queries do seu sistema sem explodir seu banco de dados xD
-
----
-
-Espero que esse post tenha sido útil de alguma forma. Quando enfrentei esse problema, ainda não tinha o hábito de pesquisar in English, e a falta de conteúdo desse tipo em português acabou fazendo com que essa quest levasse mais tempo do que eu esperava. Mas confesso que foi divertido.
-
-Pretendo trazer mais exemplos práticos com perrengues da vida real envolvendo PostgreSQL. Se tiver alguma sugestão de assunto ou crítica, deixe nos comentários! :smile:
-
-- Github com os casos de uso: https://github.com/iamseki/postgresql
-
-
--- TODO: translate to English
+But at the end of the day, IMHO, the answer is: TEST. TEST TODAY. TEST TOMORROW. ~~TEST FOREVER~~. Keep testing until you find an acceptable value for your use case that enhances query performance without blowing up your database. :smile:
