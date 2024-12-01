@@ -122,15 +122,50 @@ GROUP BY
 ORDER BY 
     total_score DESC
 LIMIT 2000;
+--
+
+QUERY PLAN                                                                                                                                                          |
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------+
+Limit  (cost=18978.96..18983.96 rows=2000 width=12) (actual time=81.589..81.840 rows=2000 loops=1)                                                                  |
+  Output: p.player_id, (sum((ps.goals + ps.assists)))                                                                                                               |
+  Buffers: shared hit=667, temp read=860 written=977                                                                                                                |
+  ->  Sort  (cost=18978.96..19003.96 rows=10000 width=12) (actual time=81.587..81.724 rows=2000 loops=1)                                                            |
+        Output: p.player_id, (sum((ps.goals + ps.assists)))                                                                                                         |
+        Sort Key: (sum((ps.goals + ps.assists))) DESC                                                                                                               |
+        Sort Method: external merge  Disk: 280kB                                                                                                                    |
+        Buffers: shared hit=667, temp read=860 written=977                                                                                                          |
+        ->  GroupAggregate  (cost=15076.66..17971.58 rows=10000 width=12) (actual time=40.293..79.264 rows=9998 loops=1)                                            |
+              Output: p.player_id, sum((ps.goals + ps.assists))                                                                                                     |
+              Group Key: p.player_id                                                                                                                                |
+              Buffers: shared hit=667, temp read=816 written=900                                                                                                    |
+              ->  Merge Join  (cost=15076.66..17121.58 rows=100000 width=12) (actual time=40.281..71.313 rows=100000 loops=1)                                       |
+                    Output: p.player_id, ps.goals, ps.assists                                                                                                       |
+                    Merge Cond: (p.player_id = ps.player_id)                                                                                                        |
+                    Buffers: shared hit=667, temp read=816 written=900                                                                                              |
+                    ->  Index Only Scan using players_pkey on public.players p  (cost=0.29..270.29 rows=10000 width=4) (actual time=0.025..1.014 rows=10000 loops=1)|
+                          Output: p.player_id                                                                                                                       |
+                          Heap Fetches: 0                                                                                                                           |
+                          Buffers: shared hit=30                                                                                                                    |
+                    ->  Materialize  (cost=15076.32..15576.32 rows=100000 width=12) (actual time=40.250..57.942 rows=100000 loops=1)                                |
+                          Output: ps.goals, ps.assists, ps.player_id                                                                                                |
+                          Buffers: shared hit=637, temp read=816 written=900                                                                                        |
+                          ->  Sort  (cost=15076.32..15326.32 rows=100000 width=12) (actual time=40.247..49.339 rows=100000 loops=1)                                 |
+                                Output: ps.goals, ps.assists, ps.player_id                                                                                          |
+                                Sort Key: ps.player_id                                                                                                              |
+                                Sort Method: external merge  Disk: 2208kB                                                                                           |
+                                Buffers: shared hit=637, temp read=816 written=900                                                                                  |
+                                ->  Seq Scan on public.player_stats ps  (cost=0.00..1637.00 rows=100000 width=12) (actual time=0.011..8.378 rows=100000 loops=1)    |
+                                      Output: ps.goals, ps.assists, ps.player_id                                                                                    |
+                                      Buffers: shared hit=637                                                                                                       |
+Planning:                                                                                                                                                           |
+  Buffers: shared hit=6                                                                                                                                             |
+Planning Time: 0.309 ms                                                                                                                                             |
+Execution Time: 82.718 ms                                                                                                                                    |
 
 COMMIT; -- 5. Aqui poderia ser um ROLLBACK, possibilitando analisar queries de INSERT, UPDATE e DELETE.
 ```
 
-Resultado do explain em plain text:
-
-![explain work-mem 64kb txt](https://raw.githubusercontent.com/iamseki/postgresql/refs/heads/main/work_mem/explain-work-mem-64kb-txt.png)
-
-Podemos ver que o tempo de execução da query foi de **79.592ms** e que o algoritmo de _Sort_ utilizado foi o `external merge`, que usa disco em vez de memória dado que o conjunto de dados ultrapassou o 64kB de _work_mem_ configurado.
+Podemos ver que o tempo de execução da query foi de **82.718ms** e que o algoritmo de _Sort_ utilizado foi o `external merge`, que usa disco em vez de memória dado que o conjunto de dados ultrapassou o 64kB de _work_mem_ configurado.
 
 Por curiosidade, o módulo `tuplesort.c` marca que o algoritmo de _Sort_ irá utilizar disco setando o estado para _SORTEDONTAPE_ [nessa linha](https://github.com/postgres/postgres/blob/master/src/backend/utils/sort/tuplesort.c#L1394) e as iterações com o disco é exposto pelo módulo [logtape.c](https://github.com/postgres/postgres/blob/master/src/backend/utils/sort/logtape.c).
 
@@ -164,11 +199,42 @@ GROUP BY
 ORDER BY 
     total_score DESC
 LIMIT 2000;
+--
+QUERY PLAN                                                                                                                                          |
+----------------------------------------------------------------------------------------------------------------------------------------------------+
+Limit  (cost=3646.90..3651.90 rows=2000 width=12) (actual time=41.672..41.871 rows=2000 loops=1)                                                    |
+  Output: p.player_id, (sum((ps.goals + ps.assists)))                                                                                               |
+  Buffers: shared hit=711                                                                                                                           |
+  ->  Sort  (cost=3646.90..3671.90 rows=10000 width=12) (actual time=41.670..41.758 rows=2000 loops=1)                                              |
+        Output: p.player_id, (sum((ps.goals + ps.assists)))                                                                                         |
+        Sort Key: (sum((ps.goals + ps.assists))) DESC                                                                                               |
+        Sort Method: top-N heapsort  Memory: 227kB                                                                                                  |
+        Buffers: shared hit=711                                                                                                                     |
+        ->  HashAggregate  (cost=2948.61..3048.61 rows=10000 width=12) (actual time=38.760..40.073 rows=9998 loops=1)                               |
+              Output: p.player_id, sum((ps.goals + ps.assists))                                                                                     |
+              Group Key: p.player_id                                                                                                                |
+              Batches: 1  Memory Usage: 1169kB                                                                                                      |
+              Buffers: shared hit=711                                                                                                               |
+              ->  Hash Join  (cost=299.00..2198.61 rows=100000 width=12) (actual time=2.322..24.273 rows=100000 loops=1)                            |
+                    Output: p.player_id, ps.goals, ps.assists                                                                                       |
+                    Inner Unique: true                                                                                                              |
+                    Hash Cond: (ps.player_id = p.player_id)                                                                                         |
+                    Buffers: shared hit=711                                                                                                         |
+                    ->  Seq Scan on public.player_stats ps  (cost=0.00..1637.00 rows=100000 width=12) (actual time=0.008..4.831 rows=100000 loops=1)|
+                          Output: ps.player_stat_id, ps.player_id, ps.match_id, ps.goals, ps.assists, ps.minutes_played                             |
+                          Buffers: shared hit=637                                                                                                   |
+                    ->  Hash  (cost=174.00..174.00 rows=10000 width=4) (actual time=2.298..2.299 rows=10000 loops=1)                                |
+                          Output: p.player_id                                                                                                       |
+                          Buckets: 16384  Batches: 1  Memory Usage: 480kB                                                                           |
+                          Buffers: shared hit=74                                                                                                    |
+                          ->  Seq Scan on public.players p  (cost=0.00..174.00 rows=10000 width=4) (actual time=0.004..0.944 rows=10000 loops=1)    |
+                                Output: p.player_id                                                                                                 |
+                                Buffers: shared hit=74                                                                                              |
+Planning:                                                                                                                                           |
+  Buffers: shared hit=6                                                                                                                             |
+Planning Time: 0.236 ms                                                                                                                             |
+Execution Time: 41.998 ms                                                                                                                           |
 ```
-
-Resultado do explain em plain text:
-
-![explain work-mem 4MB txt](https://raw.githubusercontent.com/iamseki/postgresql/refs/heads/main/work_mem/explain-work-mem-4mb-txt.png)
 
 - Se preferir uma análise visual: https://explain.dalibo.com/plan/b094ec2f1cfg44f6#
 
@@ -436,3 +502,6 @@ Espero que esse post tenha sido útil de alguma forma. Quando enfrentei esse pro
 Pretendo trazer mais exemplos práticos com perrengues da vida real envolvendo PostgreSQL. Se tiver alguma sugestão de assunto ou crítica, deixe nos comentários! :smile:
 
 - Github com os casos de uso: https://github.com/iamseki/postgresql
+
+
+-- TODO: translate to English
