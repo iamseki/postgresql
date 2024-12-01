@@ -6,7 +6,7 @@ Anos atrás, recebi a missão de investigar e **resolver** a lentidão em um sis
 ALTER USER foo SET work_mem='32MB';
 ```
 
-Sendo sincero, este conteúdo pode ou não resolver seu problema de maneira imediata, vai depender muito do padrão das queries do seu sistema. Mas, se você trabalha com backend, espero que este post traga mais uma opção no seu arsenal para resolver problemas de performance, especialmente no PostgreSQL :smile:.
+Sendo sincero, este conteúdo pode ou não resolver seu problema de maneira imediata, vai depender muito do padrão das queries do seu sistema. Mas, se você trabalha com backend, espero que este post traga mais uma opção no seu arsenal para resolver problemas de performance, especialmente envolvendo PostgreSQL :smile:.
 
 Ao longo do post, vamos montar um cenário que facilita a degradação de performance e explorar algumas ferramentas pra investigar o problema a fundo, como o EXPLAIN, o k6 pra testes de carga, além de arriscar uma olhada no código-fonte do PostgreSQL. Também vou compartilhar alguns artigos que podem dar uma direção pra resolver problemas parecidos.
 
@@ -148,7 +148,7 @@ Como indicado pelo `EXPLAIN` um dos principais problemas de performance nessa qu
 
 ## Solução
 
-Se executarmos a mesma query setando `work_mem=4MB`(que é o default do postgres), o tempo de execução cai em aproximadamente 50%:
+Se executarmos a mesma query setando `work_mem=4MB`(que é o default do postgres), o tempo de execução cai aproximadamente pela metade:
 
 ```sql
 EXPLAIN (ANALYZE, COSTS, VERBOSE, BUFFERS) 
@@ -357,7 +357,7 @@ Podemos alternar a variável de ambiente `ENDPOINT` para definir o cenário a se
 
     ![explain work-mem 64kb txt](https://raw.githubusercontent.com/iamseki/postgresql/refs/heads/main/work_mem/explain-api-k6-wm-4mb-result.png)
 
-O resultado mostra que a performance do endpoint com work_mem=4MB foi bem superior ao com 64kB. O p90 diminuiu cerca de 43ms e o throughput melhorou consideravelmente para o workload do teste. Se essas métricas são novas pra você, super indico estudar e entender a fundo, essas informações vão te ajudar a te guiar em análises de performance, aqui vai algumas fontes interessantes:
+O resultado mostra que a performance do endpoint com work_mem=4MB foi bem superior ao com 64kB. O p90 diminuiu aprox 54ms e o throughput melhorou consideravelmente para o workload do teste. Se essas métricas são novas pra você, super indico estudar e entender a fundo, essas informações vão te ajudar a te guiar em análises de performance, aqui vai algumas fontes interessantes:
 
 - [k6 response time](https://github.com/grafana/k6-learn/blob/main/Modules/II-k6-Foundations/03-Understanding-k6-results.md#response-time)
 - [p90 vs p99](https://www.akitasoftware.com/blog-posts/p90-vs-p99-why-not-both#:~:text=The%20p90%20latency%20of%20an,were%20faster%20than%20this%20number.)
