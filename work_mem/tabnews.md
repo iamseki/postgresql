@@ -351,63 +351,11 @@ Podemos alternar a variável de ambiente `ENDPOINT` para definir o cenário a se
 
 - Teste de carga `ENDPOINT: /low-work-mem` - `work_mem=64kB`
 
-    ```sh
-        ============ 64kB work_mem k6 output =============
-        | 
-        |      ✓ status is 200
-        | 
-        |      checks.........................: 100.00% 2846 out of 2846
-        |      data_received..................: 214 kB  4.7 kB/s
-        |      data_sent......................: 245 kB  5.4 kB/s
-        |      http_req_blocked...............: avg=8.78µs   min=2.13µs  med=5.25µs   max=2.62ms   p(90)=7.19µs   p(95)=8.1µs   
-        |      http_req_connecting............: avg=1.04µs   min=0s      med=0s       max=429.38µs p(90)=0s       p(95)=0s      
-        |      http_req_duration..............: avg=108ms    min=61.55ms med=113.45ms max=198.55ms p(90)=138.63ms p(95)=143.01ms
-        |        { expected_response:true }...: avg=108ms    min=61.55ms med=113.45ms max=198.55ms p(90)=138.63ms p(95)=143.01ms
-        |      http_req_failed................: 0.00%   0 out of 2846
-        |      http_req_receiving.............: avg=84.49µs  min=18.43µs med=73.4µs   max=1.08ms   p(90)=109.13µs p(95)=149.98µs
-        |      http_req_sending...............: avg=22.68µs  min=6.49µs  med=17.67µs  max=2.37ms   p(90)=25.87µs  p(95)=30.11µs 
-        |      http_req_tls_handshaking.......: avg=0s       min=0s      med=0s       max=0s       p(90)=0s       p(95)=0s      
-        |      http_req_waiting...............: avg=107.89ms min=61.45ms med=113.35ms max=198.4ms  p(90)=138.52ms p(95)=142.91ms
-        |      http_reqs......................: 2846    63.204112/s
-        |      iteration_duration.............: avg=108.2ms  min=61.71ms med=113.83ms max=198.77ms p(90)=138.93ms p(95)=143.17ms
-        |      iterations.....................: 2846    63.204112/s
-        |      vus............................: 1       min=1            max=10
-        |      vus_max........................: 10      min=10           max=10
-        | 
-        | 
-        | running (0m45.0s), 00/10 VUs, 2846 complete and 0 interrupted iterations
-        | default ✓ [ 100% ] 00/10 VUs  45s
-
-    ```
+    ![explain work-mem 64kb txt](https://raw.githubusercontent.com/iamseki/postgresql/refs/heads/main/work_mem/explain-api-k6-wm-64kb-result.png)
 
 - Teste de carga `ENDPOINT: /optimized-work-mem` - `work_mem=4MB`
 
-    ```sh
-        ============ 4MB work_mem k6 output =============
-        |      ✓ status is 200
-        | 
-        |      checks.........................: 100.00% 4275 out of 4275
-        |      data_received..................: 321 kB  7.1 kB/s
-        |      data_sent......................: 393 kB  8.7 kB/s
-        |      http_req_blocked...............: avg=7.18µs  min=1.71µs  med=5.35µs  max=551.7µs  p(90)=7.45µs   p(95)=8.68µs  
-        |      http_req_connecting............: avg=630ns   min=0s      med=0s      max=448.7µs  p(90)=0s       p(95)=0s      
-        |      http_req_duration..............: avg=71.77ms min=29.99ms med=76.67ms max=168.83ms p(90)=95.3ms   p(95)=100.53ms
-        |        { expected_response:true }...: avg=71.77ms min=29.99ms med=76.67ms max=168.83ms p(90)=95.3ms   p(95)=100.53ms
-        |      http_req_failed................: 0.00%   0 out of 4275
-        |      http_req_receiving.............: avg=90.41µs min=13.88µs med=77.02µs max=3.68ms   p(90)=115.28µs p(95)=159.52µs
-        |      http_req_sending...............: avg=21.4µs  min=6.39µs  med=18.21µs max=612.19µs p(90)=27.02µs  p(95)=32.85µs 
-        |      http_req_tls_handshaking.......: avg=0s      min=0s      med=0s      max=0s       p(90)=0s       p(95)=0s      
-        |      http_req_waiting...............: avg=71.66ms min=29.9ms  med=76.55ms max=168.71ms p(90)=95.18ms  p(95)=100.4ms 
-        |      http_reqs......................: 4275    94.931194/s
-        |      iteration_duration.............: avg=71.99ms min=30.17ms med=76.9ms  max=169.05ms p(90)=95.5ms   p(95)=100.74ms
-        |      iterations.....................: 4275    94.931194/s
-        |      vus............................: 1       min=1            max=10
-        |      vus_max........................: 10      min=10           max=10
-        | 
-        | 
-        | running (0m45.0s), 00/10 VUs, 4275 complete and 0 interrupted iterations
-        | default ✓ [ 100% ] 00/10 VUs  45s
-    ```
+    ![explain work-mem 64kb txt](https://raw.githubusercontent.com/iamseki/postgresql/refs/heads/main/work_mem/explain-api-k6-wm-4mb-result.png)
 
 O resultado mostra que a performance do endpoint com work_mem=4MB foi bem superior ao com 64kB. O p90 diminuiu cerca de 43ms e o throughput melhorou consideravelmente para o workload do teste. Se essas métricas são novas pra você, super indico estudar e entender a fundo, essas informações vão te ajudar a te guiar em análises de performance, aqui vai algumas fontes interessantes:
 
